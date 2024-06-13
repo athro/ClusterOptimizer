@@ -1,12 +1,35 @@
 
 from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
 import pandas as pd
+import numpy as np
 import copy
 
 
 class ClusterOptimizer:
+    """
+    This is a simple object simulating the GridSearchCV object from scikit-learn (sklearn), but only for clustering
+    ...
+
+    Attributes
+    ----------
+    estimator   : sklearn.cluster object
+        an instantiated of the sklearn.cluster class as object object
+    param_grid  : dictionary 
+        the parameter grid to search through
+    scoring     : list 
+        a list of scoring functions to employ (from sklearn.metrics - unsupervised only)
+    results     : pandas.DataFrame
+        the results for a cluster object after running the clustering on all paramters and the corresonding scores. 
+filter_noise    : Bool
+        A boolean indicating if noise (labelled -1 after clustering) should be removed for computing the scoring results
+
+    Methods
+    -------
+    optimize(X):
+        Computes the results for the cluster method and all parameters. The results are sored as a pandas.DataFrame
 
     
+    """
     _results_min_cols  = ['cluster_method','parameters']
     _dataframe_columns = ['cluster_method']
     
@@ -14,19 +37,43 @@ class ClusterOptimizer:
         self, 
         estimator, 
         param_grid, 
-        scoring   = [silhouette_score], 
-#        n_jobs    = None, 
-        refit     = True, 
-#        cv        = None, 
-        verbose   = 0, 
+        scoring            = [silhouette_score], 
+#        n_jobs             = None, 
+        refit              = True, 
+#        cv                 = None, 
+        verbose            = 0, 
 #        pre_dispatch ='2*n_jobs', 
 #        error_score=nan, 
-        return_train_score = False
+        return_train_score = False,
+        filter_noise       = True, 
     ):
-        self.estimator  = estimator
-        self.param_grid = param_grid
-        self.scoring    = scoring
-        self.results    = pd.DataFrame() # empty dataframe
+        '''
+        Constructs all the necessary attributes for the ClusterOptimizer object.
+
+        Parameters
+        ----------
+            estimator   : sklearn.cluster object
+                an instantiated of the sklearn.cluster class as object object
+            param_grid  : dictionary 
+                the parameter grid to search through
+            scoring     : list  
+                a list of scoring functions to employ (from sklearn.metrics - unsupervised only)
+                default = [silhouette_score]
+                Currently the following have been tested:
+                   silhouette_score
+                   davies_bouldin_score
+                   calinski_harabasz_score
+            filter_noise    : Bool
+                A boolean indicating if noise (labelled -1 after clustering) should be removed for computing the scoring results, 
+                as for exampleHDBSCAN might not cluster all samples
+                default = True
+        '''
+
+        self.estimator     = estimator
+        self.param_grid    = param_grid
+        self.scoring       = scoring
+        self.results       = pd.DataFrame() # empty dataframe
+        self.filter_noise  = filter_noise
 
     def _compute_dataframe_cols(self):
         cols = self._dataframe_columns
@@ -87,7 +134,7 @@ class ClusterOptimizer:
         return [x.__name__ for x in self.__scoring]
         
     def _wrapper(self,X,obj,my_args = {}):
-
+        #print(my_args)
         # create a copy of the original object
         o = copy.deepcopy(obj)
         # set individual (new) parameters
@@ -96,12 +143,22 @@ class ClusterOptimizer:
 
         # cluster the data
         labels = o.fit_predict(X)
-
         # score according to supplied scores
         scores_to_do = self.scoring
         score_results = {}
+
+        # if required: deal with unassigned samples (like in HDBScan when label is -1)
+        if self.filter_noise:
+            X = X[labels>=0]
+            labels = labels[labels>=0]
+
+        
         for score_to_do in scores_to_do:
-            score = score_to_do(X,labels)
+            #print(f'{score_to_do}')
+            if len(X)>0:
+                score = score_to_do(X,labels)
+            else:
+                score = -np.inf
             score_results[score_to_do.__name__] = score
 
         # save the results
